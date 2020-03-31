@@ -1,0 +1,106 @@
+.rafay_helpers: &rafay_helpers |
+    # Function to install and initialize the Rafay CLI.
+
+    function rafay_cli_init() {
+      wget -O ${HOME}/rctl-linux-amd64.tar.bz2 https://s3-us-west-2.amazonaws.com/rafay-prod-cli/publish/rctl-linux-amd64.tar.bz2
+      tar -C ${HOME} -xf ${HOME}/rctl-linux-amd64.tar.bz2
+      chmod 0755 ${HOME}/rctl
+      mkdir -p ${HOME}/.rafay/cli
+    }
+    # Function to install jq json parsing library.
+    function install_jq() {
+      apk add jq
+    }
+
+    # Function to check workload publish status
+    # Arguments:
+    # $1: workload_name
+    function check_workload_status() {
+        local workload=$1
+        if [ ! $workload ]; then
+          echo "ERROR No workload provided to 'check_workload_status' function" >&2
+          exit 1;
+        fi
+        workload_status="Not Ready"
+        workload_status_iterations=1
+        while [ "$workload_status" != "Ready" ];
+        do
+            workload_status=`${HOME}/rctl workload status "$workload" -o json|jq .result[].status|tr -d '"'`
+            echo $workload_status
+            sleep 30
+            if [ $workload_status_iterations -ge 30 ];
+            then
+                break
+            fi
+            if [ "$workload_status" = "Failed" ];
+            then
+                echo "Workload Deployment Failed"
+                break
+            fi
+            workload_status_iterations=$((workload_status_iterations+1))
+        done
+    }
+
+stages:
+  - build
+  - deploy
+  - test
+  - cleanup
+docker-build-master:
+  image: docker:latest
+  services:
+    - docker:dind
+  stage: build
+  variables:
+    container: httpbin
+  script:
+    - docker build --pull -t "$CI_REGISTRY_IMAGE" .
+    - docker login -u "$RAFAY_USERNAME" -p "$RAFAY_REGISTRY_SECRET" "$RAFAY_REGISTRY_ENDPOINT"
+    - docker tag "$CI_REGISTRY_IMAGE" "$RAFAY_REGISTRY_ENDPOINT"/"$RAFAY_ORGANIZATION_LABEL"/httpbin:"$CI_COMMIT_SHORT_SHA"
+    - docker push "$RAFAY_REGISTRY_ENDPOINT"/"$RAFAY_ORGANIZATION_LABEL"/"$container":"$CI_COMMIT_SHORT_SHA"
+  only:
+    - master
+create-workload:
+  image: docker:latest
+  stage: deploy
+  variables:
+    workload: demo-gitlab
+    container: httpbin
+    workload_yaml: workload-gitlab.yml
+  before_script:
+    - *rafay_helpers
+  script:
+    - install_jq
+    - rafay_cli_init
+    - ${HOME}/rctl workload create "$workload_yaml"
+    - ${HOME}/rctl workload set-image "$workload" "$container" "$RAFAY_REGISTRY_ENDPOINT"/"$RAFAY_ORGANIZATION_LABEL"/"$container":"$CI_COMMIT_SHORT_SHA"
+    - ${HOME}/rctl workload publish "$workload"
+    - workload_status="Not Ready"
+    - workload_status_iterations=1
+    - workload="$workload"
+    - check_workload_status "$workload"
+  only:
+    - master
+test-workload:
+  image: docker:latest
+  stage: test
+  variables:
+    workload_url: https://demo-gitlab.run.rafay-edge.net
+  script:
+    - sleep 60
+    - apk add curl
+    - curl -k -v "$workload_url"
+  only:
+    - master
+cleanup:
+  image: docker:latest
+  stage: cleanup
+  variables:
+    workload: demo-gitlab
+  before_script:
+    - *rafay_helpers
+  script:
+    - rafay_cli_init
+    - ${HOME}/rctl workload delete "$workload"
+  only:
+    - master
