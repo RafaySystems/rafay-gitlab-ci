@@ -25,7 +25,7 @@
         workload_status_iterations=1
         while [ "$workload_status" != "Ready" ];
         do
-            workload_status=`${HOME}/rctl workload status "$workload" -o json|jq .result[].status|tr -d '"'`
+            workload_status=`${HOME}/rctl status workload "$workload" -o json|jq .result[].status|tr -d '"'`
             echo $workload_status
             sleep 30
             if [ $workload_status_iterations -ge 30 ];
@@ -72,9 +72,9 @@ create-workload:
   script:
     - install_jq
     - rafay_cli_init
-    - ${HOME}/rctl workload create "$workload_yaml"
+    - ${HOME}/rctl create workload "$workload_yaml"
     - ${HOME}/rctl workload set-image "$workload" "$container" "$RAFAY_REGISTRY_ENDPOINT"/"$RAFAY_ORGANIZATION_LABEL"/"$container":"$CI_COMMIT_SHORT_SHA"
-    - ${HOME}/rctl workload publish "$workload"
+    - ${HOME}/rctl publish workload "$workload"
     - workload_status="Not Ready"
     - workload_status_iterations=1
     - workload="$workload"
@@ -101,6 +101,6 @@ cleanup:
     - *rafay_helpers
   script:
     - rafay_cli_init
-    - ${HOME}/rctl workload delete "$workload"
+    - ${HOME}/rctl delete workload "$workload"
   only:
     - master
