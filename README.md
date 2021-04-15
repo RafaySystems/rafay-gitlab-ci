@@ -9,6 +9,8 @@ You will have to setup the following environment variables in your gitlab projec
 ```
 RCTL_API_KEY
 RCTL_API_SECRET
+RCTL_REST_ENDPOINT
+RCTL_PROJECT
 ```
 
 This example shows a 4 stage pipeline. 
